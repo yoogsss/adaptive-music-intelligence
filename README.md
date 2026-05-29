@@ -81,6 +81,58 @@ heart_rate
 
 The app does not use Spotify OAuth, paid APIs, Spotify Recommendations, Spotify Audio Features, or Spotify Audio Analysis endpoints.
 
+## Optional Spotify Playlist Integration Design
+
+Spotify integration is a future/import layer, not the MVP default.
+
+Allowed Spotify API use:
+
+- User authentication.
+- Reading the user's playlists and saved playlist tracks.
+- Fetching track metadata:
+  - track name
+  - artist
+  - album
+  - Spotify track ID
+  - popularity, when available
+
+Disallowed Spotify API use:
+
+- Spotify Recommendations API.
+- Spotify Audio Features API.
+- Spotify Audio Analysis API.
+- Any Spotify-derived BPM, energy, danceability, valence, or acousticness lookup.
+
+How the integration would work:
+
+```text
+Spotify playlist tracks
+        |
+        v
+Track name + artist + album + Spotify ID
+        |
+        v
+Match track name + artist against local/public audio-feature dataset
+        |
+        v
+Only matched rows receive BPM/energy/danceability/valence/acousticness
+        |
+        v
+Unmatched tracks are marked audio_features_available = false
+        |
+        v
+Only matched tracks can be scored or recommended
+```
+
+This keeps the core recommender unchanged:
+
+- Seed songs define vibe.
+- HR zones drive workout progression.
+- Local/public audio-feature data provides tempo, energy, danceability, valence, and acousticness.
+- Spotify can enrich library access, but it does not generate recommendations or provide audio features.
+
+The matching helper lives in `src/spotify_matching.py`. It is intentionally small and testable so a future OAuth layer can call it after reading playlist metadata.
+
 ## Recommendation Logic
 
 The core logic lives in `src/recommender.py`.
@@ -116,7 +168,8 @@ The app intentionally raises an error if no seed songs match the packaged datase
 |-- src/
 |   |-- __init__.py
 |   |-- data_loader.py
-|   `-- recommender.py
+|   |-- recommender.py
+|   `-- spotify_matching.py
 |-- tests/
 |   `-- test_recommender.py
 |-- .gitignore
@@ -154,6 +207,7 @@ No secrets are required. To use a larger dataset, add `data/real_spotify_tracks.
 
 - Replace static workout sessions with live wearable or fitness-app sensor streams.
 - Add real-time playlist updates as heart-rate intensity changes.
+- Add optional Spotify OAuth for playlist import/export while continuing to score only against local/public audio-feature data.
 - Add fuzzy seed-song search and autocomplete.
 - Add larger packaged public audio-feature dataset support.
 - Add workout phase controls such as warmup, steady state, intervals, cooldown.
@@ -165,11 +219,12 @@ No secrets are required. To use a larger dataset, add `data/real_spotify_tracks.
 - Built a Streamlit prototype for adaptive workout music recommendations using seed-song similarity and simulated wearable heart-rate timelines.
 - Implemented session segmentation by heart-rate zone and generated ordered per-segment playlists with score breakdowns.
 - Designed reusable pandas recommendation logic for BPM fit, seed similarity, workout fit, mood/genre fit, and heart-rate intensity fit.
-- Kept the MVP deployable without OAuth, paid APIs, external services, or user-facing CSV uploads.
+- Kept the MVP deployable without OAuth, paid APIs, external services, or user-facing CSV uploads, while documenting an optional Spotify metadata-only integration path.
 
 ## Limitations
 
 - The MVP uses static packaged workout sessions instead of live wearable data.
 - `data/demo_songs.csv` is a tiny fallback; a larger `data/real_spotify_tracks.csv` dataset is needed for credible real-world coverage.
 - Seed songs must exist in the packaged song dataset.
+- Future Spotify playlist integration would still exclude tracks that cannot be matched to local/public audio features.
 - Scoring is transparent and rule-based, not machine learning.

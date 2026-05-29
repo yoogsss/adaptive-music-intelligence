@@ -10,6 +10,7 @@ from src.recommender import (
     recommend_songs,
     segment_workout_session,
 )
+from src.spotify_matching import match_spotify_tracks_to_audio_features, scoring_ready_tracks
 
 
 def song_rows():
@@ -174,3 +175,31 @@ def test_recommend_for_workout_segments_returns_ordered_playlist():
     assert "heart_rate_fit" in playlist.columns
     assert seed_df.iloc[0]["track_name"] == "Seed"
     assert seed_profile["bpm"] == 126
+
+
+def test_spotify_metadata_match_marks_unavailable_features():
+    spotify_tracks = pd.DataFrame(
+        [
+            {
+                "spotify_track_id": "abc",
+                "track_name": "Best Candidate",
+                "artist": "B",
+                "album": "Album",
+                "popularity": 80,
+            },
+            {
+                "spotify_track_id": "missing",
+                "track_name": "Not In Dataset",
+                "artist": "Nobody",
+                "album": "Unknown",
+                "popularity": 10,
+            },
+        ]
+    )
+
+    matched = match_spotify_tracks_to_audio_features(spotify_tracks, song_rows())
+    ready = scoring_ready_tracks(matched)
+
+    assert matched.loc[matched["spotify_track_id"] == "abc", "audio_features_available"].iloc[0]
+    assert not matched.loc[matched["spotify_track_id"] == "missing", "audio_features_available"].iloc[0]
+    assert ready["spotify_track_id"].tolist() == ["abc"]

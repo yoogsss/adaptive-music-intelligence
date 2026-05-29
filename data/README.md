@@ -22,6 +22,28 @@ Recommended public datasets:
 
 The app does not call Spotify APIs, does not use OAuth, and does not depend on Spotify Recommendations, Audio Features, or Audio Analysis endpoints.
 
+## Optional Spotify Metadata Import
+
+A future integration may use Spotify only to read user playlist metadata:
+
+```text
+spotify_track_id
+track_name
+artist
+album
+popularity
+```
+
+Spotify will not be used for BPM, energy, danceability, valence, acousticness, recommendations, or audio analysis.
+
+Imported Spotify playlist tracks must be matched to this local/public audio-feature dataset by normalized `track_name + artist`. If no match exists, the track should be marked:
+
+```text
+audio_features_available = false
+```
+
+Tracks without local/public audio features are excluded from scoring.
+
 Required normalized song columns:
 
 ```text
