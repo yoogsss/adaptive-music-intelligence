@@ -1,63 +1,131 @@
 # Adaptive Workout Music Intelligence
 
-Adaptive Workout Music Intelligence is a lightweight Python + Streamlit MVP that recommends workout songs using heart-rate zone context and audio features. It is designed as a small analytics product, not a production music platform: no Spotify OAuth, no paid APIs, no database, and no complex backend.
+Adaptive Workout Music Intelligence is a Streamlit MVP for real-data seed-song + workout-context music recommendations. It is built for public Spotify/audio-feature CSV datasets and does not use Spotify OAuth, Spotify Recommendations, Spotify Audio Features, Spotify Audio Analysis, paid APIs, or a backend service.
 
-The app runs immediately with bundled sample CSVs, while still allowing users to upload their own workout and song-feature data.
+The app is seed-song first: enter 2-3 songs you want to match, choose workout context, mood, genres, and BPM range, then review ranked recommendations with score breakdowns and explanations.
 
 ## What It Does
 
-- Loads sample or uploaded heart-rate workout data.
-- Loads sample or uploaded song/audio-feature data.
-- Estimates max heart rate from age using `220 - age`.
-- Classifies each workout record into a heart-rate training zone.
-- Finds the dominant workout zone for the session.
-- Scores songs against the workout context using BPM, energy, danceability, mood, and target intensity.
-- Displays charts for heart rate over time, zone distribution, song BPM distribution, and recommendation scores.
-- Shows a plain-English explanation for why each song was recommended.
+- Loads a real public Spotify/audio-feature CSV by upload or public CSV URL.
+- Includes a tiny `data/demo_songs.csv` only so the app runs immediately.
+- Matches seed songs from the loaded dataset.
+- Builds a seed-song profile from BPM, energy, danceability, valence, and acousticness.
+- Scores recommendations by:
+  - BPM fit
+  - seed-song similarity
+  - workout type fit
+  - mood/genre fit
+  - optional heart-rate fit
+- Lets users exclude low-score songs.
+- Shows why each song was recommended.
+- Keeps heart-rate upload optional and secondary.
+
+## App Inputs
+
+- Workout type:
+  - treadmill walk
+  - treadmill run
+  - stairmaster
+  - cycling
+  - weight lifting
+  - boxing
+  - pilates
+- Mood:
+  - sultry pop
+  - club walk
+  - dance-pop strut
+  - dark pop
+  - aggressive
+  - focused
+  - chill
+- Preferred genres from the loaded dataset.
+- 2-3 seed songs, one per line.
+- Target BPM range.
+- Optional heart-rate/workout CSV.
+
+## Data
+
+See [data/README.md](data/README.md) for dataset links and schema details.
+
+Recommended public datasets:
+
+- Hugging Face `maharshipandya/spotify-tracks-dataset`
+- Hugging Face `engels/spotify-tracks-lite`
+- Kaggle Spotify Tracks Dataset
+
+Required normalized columns:
+
+```text
+track_name
+artist
+bpm
+energy
+danceability
+valence
+acousticness
+genre
+```
+
+The loader accepts common alternatives such as `tempo` for `bpm`, `artists` for `artist`, and `track_genre` for `genre`.
 
 ## Data Flow
 
 ```text
-Workout CSV              Song Feature CSV
-timestamp, heart_rate    track_name, artist, bpm, energy, danceability, valence
-        |                         |
-        v                         v
-Clean numeric fields      Clean numeric fields
-        |                         |
-        v                         v
-Classify HR zones         Keep audio features
-        |                         |
-        v                         |
-Find dominant zone        |
-        +-------------+-----------+
-                      v
-       Score songs for zone + mood + intensity
-                      |
-                      v
-      Ranked recommendations with explanations
+Real Spotify/audio-feature CSV
+        |
+        v
+Normalize column names and clean numeric features
+        |
+        v
+Match 2-3 seed songs in the dataset
+        |
+        v
+Build seed-song feature profile
+        |
+        v
+Apply workout, mood, genre, BPM, and optional HR context
+        |
+        v
+Rank recommendations and show score breakdown
+```
+
+Optional workout flow:
+
+```text
+Workout CSV: timestamp, heart_rate
+        |
+        v
+Estimate max heart rate from age
+        |
+        v
+Classify HR zones
+        |
+        v
+Adjust recommendations with heart-rate fit
 ```
 
 ## Recommendation Logic
 
-The scoring logic lives in `src/recommender.py` so it can be tested separately from the Streamlit UI.
+The core logic lives in `src/recommender.py`.
 
-1. The app estimates max heart rate as `220 - age`.
-2. Each heart-rate row is assigned to a training zone:
-   - Zone 1: recovery
-   - Zone 2: endurance
-   - Zone 3: tempo
-   - Zone 4: threshold
-   - Zone 5: peak
-3. The dominant zone becomes the workout context.
-4. The selected mood maps to a target valence value.
-5. The selected intensity adjusts target BPM and energy.
-6. Each song receives a weighted recommendation score:
-   - BPM match: 38%
-   - Energy match: 28%
-   - Danceability match: 16%
-   - Mood/valence match: 18%
+Without heart-rate data, the score is:
 
-The explanation text is rule-based and describes whether a song fits the target tempo, energy, and mood profile. This is intentionally simple and transparent for an MVP.
+- Seed similarity: 38%
+- BPM fit: 27%
+- Mood/genre fit: 20%
+- Workout fit: 15%
+
+With heart-rate data, the score is:
+
+- Seed similarity: 35%
+- BPM fit: 25%
+- Mood/genre fit: 18%
+- Workout fit: 14%
+- Heart-rate fit: 8%
+
+Seed similarity compares BPM, energy, danceability, valence, and acousticness against the matched seed-song profile. Selected seed songs are excluded from the final recommendations.
+
+The app intentionally raises an error if no seed songs match the loaded dataset. This prevents the recommender from returning random high-BPM tracks without seed context.
 
 ## Project Structure
 
@@ -65,12 +133,14 @@ The explanation text is rule-based and describes whether a song fits the target 
 .
 |-- app.py
 |-- data/
-|   |-- sample_songs.csv
+|   |-- README.md
+|   |-- demo_songs.csv
 |   `-- sample_workout.csv
 |-- notebooks/
 |   `-- README.md
 |-- src/
 |   |-- __init__.py
+|   |-- data_loader.py
 |   `-- recommender.py
 |-- tests/
 |   `-- test_recommender.py
@@ -80,45 +150,12 @@ The explanation text is rule-based and describes whether a song fits the target 
 `-- requirements.txt
 ```
 
-## Sample Data
-
-The project includes free, synthetic sample data so the app works without external accounts or downloads.
-
-Workout data format:
-
-```csv
-timestamp,heart_rate
-00:00,102
-00:01,108
-```
-
-Song feature data format:
-
-```csv
-track_name,artist,bpm,energy,danceability,valence
-Tempo Lock,Metro Signal,143,0.67,0.74,0.55
-```
-
-`energy`, `danceability`, and `valence` should be numeric values from `0` to `1`. `bpm` and `heart_rate` should be numeric.
-
 ## Run Locally
-
-Create and activate a virtual environment:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-```
-
-Install dependencies:
-
-```bash
 pip install -r requirements.txt
-```
-
-Start the app:
-
-```bash
 streamlit run app.py
 ```
 
@@ -132,37 +169,33 @@ pytest
 
 1. Push this repository to GitHub.
 2. Open [Streamlit Community Cloud](https://streamlit.io/cloud).
-3. Create a new app from the GitHub repository.
+3. Create a new app from this repository.
 4. Set the main file path to `app.py`.
-5. Deploy the app.
+5. Deploy.
 
-Streamlit Community Cloud will install packages from `requirements.txt`. No secrets are required because the project does not use OAuth, private APIs, or paid services.
+No secrets are required. For the best deployed experience, upload a real dataset in the app or host a CSV publicly and paste its raw URL.
 
 ## Future Extensions
 
-Practical next steps that would build on the current MVP:
-
-- Add user-adjustable scoring weights for BPM, energy, danceability, and valence.
-- Support longer workout files with lap, segment, or interval labels.
-- Recommend songs by workout phase, such as warmup, endurance block, intervals, and cooldown.
+- Add fuzzy seed-song search for typos and alternate artist spellings.
 - Add playlist export to CSV.
-- Add better validation messages for malformed uploaded files.
-- Compare recommendation quality across multiple workouts.
-- Integrate a free public audio-feature dataset if licensing allows redistribution.
-- Add a notebook for exploratory analysis of workout zones and song-feature distributions.
+- Add user-adjustable scoring weights.
+- Add workout phase presets such as warmup, steady state, intervals, cooldown.
+- Add filters for explicit content, release year, popularity, language, and artist exclusion.
+- Add cached loading for a specific public dataset mirror.
+- Add a notebook for validating scoring weights against known workout playlists.
+- Add feedback controls such as "more like this" and "too intense."
 
 ## Resume-Friendly Summary
 
-Honest project bullets:
-
-- Built a Streamlit analytics MVP that recommends workout music from heart-rate zones, workout intensity, mood, and song audio features.
-- Implemented reusable pandas-based recommendation logic with automated tests for heart-rate zone classification and song scoring.
-- Created a deployable no-API data app with bundled sample CSVs, upload workflows, interactive charts, and explainable recommendations.
-- Structured the project for Streamlit Community Cloud deployment with a simple `app.py`, tested core logic, and clear setup documentation.
+- Built a Streamlit music recommendation MVP using real-data-ready Spotify/audio-feature CSV ingestion, seed-song similarity, workout context, and explainable score breakdowns.
+- Implemented reusable pandas scoring logic for BPM fit, seed similarity, workout fit, mood/genre fit, and optional heart-rate intensity adjustment.
+- Added dataset normalization for common public Spotify CSV schemas without relying on Spotify OAuth or restricted/deprecated Spotify recommendation APIs.
+- Wrote automated tests covering dataset normalization, seed matching, score breakdowns, seed exclusion, and heart-rate zone helpers.
 
 ## Limitations
 
-- Uses synthetic sample data by default.
-- Uses estimated max heart rate, not a medically personalized threshold model.
-- Uses rule-based scoring rather than machine learning.
-- Does not stream music or connect to Spotify.
+- The bundled demo CSV is only for interface testing; real recommendations require uploading a real public dataset.
+- Seed songs must exist in the loaded dataset.
+- Scoring is transparent and rule-based, not machine learning.
+- The app recommends tracks but does not stream music or create playlists inside Spotify.

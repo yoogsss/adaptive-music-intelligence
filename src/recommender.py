@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Iterable
 
 import numpy as np
@@ -15,41 +14,38 @@ ZONE_LABELS = [
     "Zone 5 - Peak",
 ]
 
-ZONE_TARGETS = {
-    "Zone 1 - Recovery": {"bpm": 115, "energy": 0.35, "danceability": 0.55},
-    "Zone 2 - Endurance": {"bpm": 128, "energy": 0.50, "danceability": 0.65},
-    "Zone 3 - Tempo": {"bpm": 145, "energy": 0.68, "danceability": 0.72},
-    "Zone 4 - Threshold": {"bpm": 160, "energy": 0.82, "danceability": 0.78},
-    "Zone 5 - Peak": {"bpm": 175, "energy": 0.92, "danceability": 0.82},
+WORKOUT_TARGETS = {
+    "treadmill walk": {"bpm": 118, "energy": 0.62, "danceability": 0.72},
+    "treadmill run": {"bpm": 152, "energy": 0.86, "danceability": 0.72},
+    "stairmaster": {"bpm": 130, "energy": 0.78, "danceability": 0.70},
+    "cycling": {"bpm": 138, "energy": 0.80, "danceability": 0.68},
+    "weight lifting": {"bpm": 112, "energy": 0.74, "danceability": 0.60},
+    "boxing": {"bpm": 148, "energy": 0.90, "danceability": 0.66},
+    "pilates": {"bpm": 96, "energy": 0.42, "danceability": 0.55},
 }
 
-MOOD_VALENCE_TARGETS = {
-    "Focused": 0.52,
-    "Happy": 0.82,
-    "Aggressive": 0.35,
-    "Calm": 0.65,
+MOOD_TARGETS = {
+    "sultry pop": {"energy": 0.62, "danceability": 0.76, "valence": 0.45, "acousticness": 0.18},
+    "club walk": {"energy": 0.78, "danceability": 0.82, "valence": 0.60, "acousticness": 0.08},
+    "dance-pop strut": {"energy": 0.76, "danceability": 0.84, "valence": 0.74, "acousticness": 0.10},
+    "dark pop": {"energy": 0.70, "danceability": 0.72, "valence": 0.34, "acousticness": 0.12},
+    "aggressive": {"energy": 0.90, "danceability": 0.62, "valence": 0.38, "acousticness": 0.06},
+    "focused": {"energy": 0.58, "danceability": 0.60, "valence": 0.50, "acousticness": 0.24},
+    "chill": {"energy": 0.36, "danceability": 0.52, "valence": 0.58, "acousticness": 0.48},
 }
 
-INTENSITY_ADJUSTMENTS = {
-    "Low": {"bpm": -8, "energy": -0.12},
-    "Moderate": {"bpm": 0, "energy": 0.0},
-    "High": {"bpm": 10, "energy": 0.10},
-}
+CORE_FEATURES = ["bpm", "energy", "danceability", "valence", "acousticness"]
 
 
-@dataclass(frozen=True)
-class WorkoutProfile:
-    age: int = 30
-    mood: str = "Focused"
-    intensity: str = "Moderate"
+def available_workout_types() -> list[str]:
+    return list(WORKOUT_TARGETS)
 
-    @property
-    def max_hr(self) -> int:
-        return 220 - self.age
+
+def available_moods() -> list[str]:
+    return list(MOOD_TARGETS)
 
 
 def classify_hr_zone(heart_rate: float, max_hr: float) -> str:
-    """Classify heart rate into common percentage-of-max training zones."""
     pct = heart_rate / max_hr
     if pct < 0.60:
         return ZONE_LABELS[0]
@@ -70,6 +66,8 @@ def add_hr_zones(workout_df: pd.DataFrame, age: int) -> pd.DataFrame:
 
     max_hr = 220 - age
     df = workout_df.copy()
+    df["heart_rate"] = pd.to_numeric(df["heart_rate"], errors="coerce")
+    df = df.dropna(subset=["heart_rate"])
     df["hr_zone"] = df["heart_rate"].apply(lambda hr: classify_hr_zone(float(hr), max_hr))
     df["hr_percent_max"] = df["heart_rate"] / max_hr
     return df
@@ -81,84 +79,18 @@ def dominant_zone(workout_df: pd.DataFrame) -> str:
     return workout_df["hr_zone"].mode().iloc[0]
 
 
-def target_for_context(zone: str, mood: str, intensity: str) -> dict[str, float]:
-    zone_target = ZONE_TARGETS.get(zone, ZONE_TARGETS["Zone 3 - Tempo"]).copy()
-    mood_target = MOOD_VALENCE_TARGETS.get(mood, MOOD_VALENCE_TARGETS["Focused"])
-    adjustment = INTENSITY_ADJUSTMENTS.get(intensity, INTENSITY_ADJUSTMENTS["Moderate"])
+def heart_rate_context(workout_df: pd.DataFrame | None) -> dict[str, float] | None:
+    if workout_df is None or workout_df.empty or "hr_percent_max" not in workout_df.columns:
+        return None
 
-    return {
-        "bpm": zone_target["bpm"] + adjustment["bpm"],
-        "energy": float(np.clip(zone_target["energy"] + adjustment["energy"], 0, 1)),
-        "danceability": zone_target["danceability"],
-        "valence": mood_target,
-    }
-
-
-def _similarity(value: pd.Series, target: float, scale: float) -> pd.Series:
-    return (1 - (value.astype(float) - target).abs() / scale).clip(0, 1)
-
-
-def recommend_songs(
-    songs_df: pd.DataFrame,
-    zone: str,
-    mood: str,
-    intensity: str,
-    top_n: int = 8,
-) -> pd.DataFrame:
-    required = {"track_name", "artist", "bpm", "energy", "danceability", "valence"}
-    missing = required - set(songs_df.columns)
-    if missing:
-        raise ValueError(f"Song data is missing columns: {', '.join(sorted(missing))}")
-
-    target = target_for_context(zone, mood, intensity)
-    scored = songs_df.copy()
-    scored["bpm_match"] = _similarity(scored["bpm"], target["bpm"], 45)
-    scored["energy_match"] = _similarity(scored["energy"], target["energy"], 0.6)
-    scored["danceability_match"] = _similarity(scored["danceability"], target["danceability"], 0.55)
-    scored["mood_match"] = _similarity(scored["valence"], target["valence"], 0.65)
-    scored["recommendation_score"] = (
-        scored["bpm_match"] * 0.38
-        + scored["energy_match"] * 0.28
-        + scored["danceability_match"] * 0.16
-        + scored["mood_match"] * 0.18
-    ).round(3)
-    scored["why_recommended"] = scored.apply(
-        lambda row: explain_recommendation(row, target, zone, mood, intensity),
-        axis=1,
-    )
-    return scored.sort_values("recommendation_score", ascending=False).head(top_n)
-
-
-def explain_recommendation(
-    song: pd.Series,
-    target: dict[str, float],
-    zone: str,
-    mood: str,
-    intensity: str,
-) -> str:
-    bpm_delta = abs(float(song["bpm"]) - target["bpm"])
-    energy_delta = abs(float(song["energy"]) - target["energy"])
-    valence_delta = abs(float(song["valence"]) - target["valence"])
-
-    reasons: list[str] = []
-    if bpm_delta <= 10:
-        reasons.append("tempo closely matches the workout target")
-    elif float(song["bpm"]) > target["bpm"]:
-        reasons.append("tempo adds an extra push")
-    else:
-        reasons.append("tempo supports a steadier pace")
-
-    if energy_delta <= 0.12:
-        reasons.append("energy fits the selected intensity")
-    elif float(song["energy"]) > target["energy"]:
-        reasons.append("higher energy can lift effort")
-    else:
-        reasons.append("lower energy helps control effort")
-
-    if valence_delta <= 0.18:
-        reasons.append(f"mood profile fits {mood.lower()} training")
-
-    return f"{zone}, {intensity.lower()} intensity: " + "; ".join(reasons) + "."
+    avg_pct = float(workout_df["hr_percent_max"].mean())
+    if avg_pct < 0.65:
+        return {"bpm": 105, "energy": 0.45, "intensity": 0.35}
+    if avg_pct < 0.75:
+        return {"bpm": 122, "energy": 0.62, "intensity": 0.55}
+    if avg_pct < 0.85:
+        return {"bpm": 140, "energy": 0.78, "intensity": 0.75}
+    return {"bpm": 155, "energy": 0.90, "intensity": 0.90}
 
 
 def coerce_numeric_columns(df: pd.DataFrame, columns: Iterable[str]) -> pd.DataFrame:
@@ -166,3 +98,220 @@ def coerce_numeric_columns(df: pd.DataFrame, columns: Iterable[str]) -> pd.DataF
     for column in columns:
         clean[column] = pd.to_numeric(clean[column], errors="coerce")
     return clean.dropna(subset=list(columns))
+
+
+def song_options(songs_df: pd.DataFrame) -> list[str]:
+    required = {"track_name", "artist"}
+    missing = required - set(songs_df.columns)
+    if missing:
+        raise ValueError(f"Song data is missing columns: {', '.join(sorted(missing))}")
+    return [_song_key(row) for _, row in songs_df.iterrows()]
+
+
+def find_seed_songs(songs_df: pd.DataFrame, seed_inputs: Iterable[str]) -> pd.DataFrame:
+    matches: list[int] = []
+    lookup = {_song_key(row).lower(): index for index, row in songs_df.iterrows()}
+
+    for seed in seed_inputs:
+        normalized = seed.strip().lower()
+        if not normalized:
+            continue
+
+        normalized = normalized.replace(" by ", " - ")
+        if normalized in lookup:
+            matches.append(lookup[normalized])
+            continue
+
+        for index, row in songs_df.iterrows():
+            track = str(row["track_name"]).lower()
+            artist = str(row["artist"]).lower()
+            if normalized == track or (track in normalized and artist in normalized):
+                matches.append(index)
+                break
+
+    return songs_df.loc[sorted(set(matches))].copy()
+
+
+def seed_feature_profile(seed_df: pd.DataFrame) -> dict[str, float]:
+    if seed_df.empty:
+        raise ValueError("At least one seed song must match the loaded dataset.")
+    return {feature: float(seed_df[feature].mean()) for feature in CORE_FEATURES}
+
+
+def recommend_songs(
+    songs_df: pd.DataFrame,
+    seed_inputs: Iterable[str],
+    bpm_min: int,
+    bpm_max: int,
+    workout_type: str,
+    mood: str,
+    preferred_genres: Iterable[str] | None = None,
+    workout_df: pd.DataFrame | None = None,
+    min_score: float = 0.0,
+    top_n: int = 20,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, float]]:
+    required = {"track_name", "artist", "bpm", "energy", "danceability", "valence", "acousticness", "genre"}
+    missing = required - set(songs_df.columns)
+    if missing:
+        raise ValueError(f"Song data is missing columns: {', '.join(sorted(missing))}")
+    if bpm_min > bpm_max:
+        raise ValueError("Minimum BPM cannot be greater than maximum BPM.")
+
+    seed_df = find_seed_songs(songs_df, seed_inputs)
+    seed_profile = seed_feature_profile(seed_df)
+    workout_target = WORKOUT_TARGETS.get(workout_type, WORKOUT_TARGETS["treadmill walk"])
+    mood_target = MOOD_TARGETS.get(mood, MOOD_TARGETS["club walk"])
+    hr_target = heart_rate_context(workout_df)
+    genre_set = {genre.strip().lower() for genre in preferred_genres or [] if genre.strip()}
+
+    scored = songs_df.copy()
+    scored["bpm_fit"] = bpm_range_fit(scored["bpm"], bpm_min, bpm_max)
+    scored["seed_similarity"] = seed_similarity(scored, seed_profile)
+    scored["workout_fit"] = workout_fit(scored, workout_target)
+    scored["mood_genre_fit"] = mood_genre_fit(scored, mood_target, mood, genre_set)
+    scored["heart_rate_fit"] = heart_rate_fit(scored, hr_target)
+
+    if hr_target is None:
+        scored["recommendation_score"] = (
+            scored["seed_similarity"] * 0.38
+            + scored["bpm_fit"] * 0.27
+            + scored["mood_genre_fit"] * 0.20
+            + scored["workout_fit"] * 0.15
+        )
+    else:
+        scored["recommendation_score"] = (
+            scored["seed_similarity"] * 0.35
+            + scored["bpm_fit"] * 0.25
+            + scored["mood_genre_fit"] * 0.18
+            + scored["workout_fit"] * 0.14
+            + scored["heart_rate_fit"] * 0.08
+        )
+
+    scored["recommendation_score"] = scored["recommendation_score"].round(3)
+    seed_keys = {_song_key(row).lower() for _, row in seed_df.iterrows()}
+    scored["_song_key"] = scored.apply(_song_key, axis=1).str.lower()
+    scored = scored[~scored["_song_key"].isin(seed_keys)]
+    scored = scored[scored["recommendation_score"] >= min_score]
+    scored["why_recommended"] = scored.apply(
+        lambda row: explain_recommendation(row, bpm_min, bpm_max, workout_type, mood, genre_set, hr_target),
+        axis=1,
+    )
+
+    breakdown_cols = ["bpm_fit", "seed_similarity", "workout_fit", "mood_genre_fit", "heart_rate_fit"]
+    scored[breakdown_cols] = scored[breakdown_cols].round(3)
+    return (
+        scored.sort_values("recommendation_score", ascending=False).head(top_n).drop(columns=["_song_key"]),
+        seed_df,
+        seed_profile,
+    )
+
+
+def bpm_range_fit(bpm: pd.Series, bpm_min: int, bpm_max: int) -> pd.Series:
+    midpoint = (bpm_min + bpm_max) / 2
+    half_width = max((bpm_max - bpm_min) / 2, 1)
+    distance_outside_range = (bpm.astype(float) - midpoint).abs() - half_width
+    return (1 - distance_outside_range.clip(lower=0) / 35).clip(0, 1)
+
+
+def seed_similarity(songs_df: pd.DataFrame, seed_profile: dict[str, float]) -> pd.Series:
+    return (
+        _similarity(songs_df["bpm"], seed_profile["bpm"], 35) * 0.30
+        + _similarity(songs_df["energy"], seed_profile["energy"], 0.45) * 0.22
+        + _similarity(songs_df["danceability"], seed_profile["danceability"], 0.40) * 0.22
+        + _similarity(songs_df["valence"], seed_profile["valence"], 0.45) * 0.16
+        + _similarity(songs_df["acousticness"], seed_profile["acousticness"], 0.50) * 0.10
+    ).clip(0, 1)
+
+
+def workout_fit(songs_df: pd.DataFrame, workout_target: dict[str, float]) -> pd.Series:
+    return (
+        _similarity(songs_df["bpm"], workout_target["bpm"], 45) * 0.40
+        + _similarity(songs_df["energy"], workout_target["energy"], 0.45) * 0.40
+        + _similarity(songs_df["danceability"], workout_target["danceability"], 0.45) * 0.20
+    ).clip(0, 1)
+
+
+def mood_genre_fit(
+    songs_df: pd.DataFrame,
+    mood_target: dict[str, float],
+    mood: str,
+    preferred_genres: set[str],
+) -> pd.Series:
+    feature_fit = (
+        _similarity(songs_df["energy"], mood_target["energy"], 0.50) * 0.25
+        + _similarity(songs_df["danceability"], mood_target["danceability"], 0.45) * 0.25
+        + _similarity(songs_df["valence"], mood_target["valence"], 0.50) * 0.25
+        + _similarity(songs_df["acousticness"], mood_target["acousticness"], 0.55) * 0.15
+    )
+    tag_fit = songs_df.apply(lambda row: tag_match(row, mood, preferred_genres), axis=1)
+    return (feature_fit + tag_fit * 0.10).clip(0, 1)
+
+
+def heart_rate_fit(songs_df: pd.DataFrame, hr_target: dict[str, float] | None) -> pd.Series:
+    if hr_target is None:
+        return pd.Series(0.0, index=songs_df.index)
+    return (
+        _similarity(songs_df["bpm"], hr_target["bpm"], 45) * 0.45
+        + _similarity(songs_df["energy"], hr_target["energy"], 0.45) * 0.55
+    ).clip(0, 1)
+
+
+def tag_match(row: pd.Series, mood: str, preferred_genres: set[str]) -> float:
+    tokens = _tokenize(row.get("genre", "")) | _tokenize(row.get("track_genre", "")) | _tokenize(row.get("tags", ""))
+    mood_tokens = _tokenize(mood)
+    genre_score = 1.0 if preferred_genres and tokens & preferred_genres else 0.0
+    mood_score = 1.0 if tokens & mood_tokens else 0.0
+    if preferred_genres:
+        return max(genre_score, mood_score * 0.7)
+    return mood_score
+
+
+def explain_recommendation(
+    row: pd.Series,
+    bpm_min: int,
+    bpm_max: int,
+    workout_type: str,
+    mood: str,
+    preferred_genres: set[str],
+    hr_target: dict[str, float] | None,
+) -> str:
+    reasons: list[str] = []
+    if row["bpm_fit"] >= 0.95:
+        reasons.append(f"{row['bpm']:.0f} BPM is inside your target range")
+    elif row["bpm_fit"] >= 0.70:
+        reasons.append(f"{row['bpm']:.0f} BPM is close to your target range")
+
+    if row["seed_similarity"] >= 0.80:
+        reasons.append("audio features are close to the matched seed-song profile")
+    elif row["seed_similarity"] >= 0.65:
+        reasons.append("audio features are moderately similar to the seed songs")
+
+    if row["workout_fit"] >= 0.75:
+        reasons.append(f"energy and tempo fit {workout_type}")
+
+    if row["mood_genre_fit"] >= 0.75:
+        reasons.append(f"feature profile fits {mood}")
+    if preferred_genres and _tokenize(row.get("genre", "")) & preferred_genres:
+        reasons.append("genre matches your preference")
+
+    if hr_target is not None and row["heart_rate_fit"] >= 0.70:
+        reasons.append("also fits the uploaded heart-rate intensity")
+
+    if not reasons:
+        reasons.append("balanced score across seed similarity, BPM, workout, and mood")
+    return "; ".join(reasons) + "."
+
+
+def _similarity(value: pd.Series, target: float, scale: float) -> pd.Series:
+    return (1 - (value.astype(float) - target).abs() / scale).clip(0, 1)
+
+
+def _song_key(row: pd.Series) -> str:
+    return f"{row['track_name']} - {row['artist']}"
+
+
+def _tokenize(value: object) -> set[str]:
+    if pd.isna(value):
+        return set()
+    text = str(value).lower().replace(",", ";").replace("|", ";").replace("/", ";")
+    return {token.strip() for token in text.split(";") if token.strip()}

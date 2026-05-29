@@ -1,6 +1,71 @@
 import pandas as pd
 
-from src.recommender import add_hr_zones, classify_hr_zone, dominant_zone, recommend_songs
+from src.data_loader import normalize_song_dataset
+from src.recommender import (
+    add_hr_zones,
+    classify_hr_zone,
+    dominant_zone,
+    find_seed_songs,
+    recommend_songs,
+)
+
+
+def song_rows():
+    return pd.DataFrame(
+        [
+            {
+                "track_name": "Seed",
+                "artist": "A",
+                "bpm": 126,
+                "energy": 0.82,
+                "danceability": 0.80,
+                "valence": 0.50,
+                "acousticness": 0.08,
+                "genre": "pop",
+            },
+            {
+                "track_name": "Best Candidate",
+                "artist": "B",
+                "bpm": 124,
+                "energy": 0.80,
+                "danceability": 0.82,
+                "valence": 0.52,
+                "acousticness": 0.07,
+                "genre": "dance pop",
+            },
+            {
+                "track_name": "High BPM Wrong Vibe",
+                "artist": "C",
+                "bpm": 168,
+                "energy": 0.95,
+                "danceability": 0.42,
+                "valence": 0.18,
+                "acousticness": 0.75,
+                "genre": "metal",
+            },
+        ]
+    )
+
+
+def test_normalize_song_dataset_accepts_common_public_dataset_columns():
+    raw = pd.DataFrame(
+        {
+            "track_name": ["Song"],
+            "artists": ["Artist"],
+            "tempo": [120],
+            "energy": [0.8],
+            "danceability": [0.7],
+            "valence": [0.6],
+            "acousticness": [0.1],
+            "track_genre": ["pop"],
+        }
+    )
+
+    result = normalize_song_dataset(raw)
+
+    assert result.loc[0, "artist"] == "Artist"
+    assert result.loc[0, "bpm"] == 120
+    assert result.loc[0, "genre"] == "pop"
 
 
 def test_classify_hr_zone_uses_percent_of_max_hr():
@@ -20,36 +85,45 @@ def test_add_hr_zones_and_dominant_zone():
     assert dominant_zone(result) == "Zone 2 - Endurance"
 
 
-def test_recommend_songs_ranks_contextual_match_first():
-    songs = pd.DataFrame(
-        [
-            {
-                "track_name": "Best Match",
-                "artist": "A",
-                "bpm": 160,
-                "energy": 0.84,
-                "danceability": 0.78,
-                "valence": 0.52,
-            },
-            {
-                "track_name": "Too Slow",
-                "artist": "B",
-                "bpm": 105,
-                "energy": 0.25,
-                "danceability": 0.45,
-                "valence": 0.90,
-            },
-        ]
-    )
+def test_find_seed_songs_matches_track_artist_input():
+    result = find_seed_songs(song_rows(), ["Seed - A"])
 
-    result = recommend_songs(
-        songs,
-        zone="Zone 4 - Threshold",
-        mood="Focused",
-        intensity="Moderate",
+    assert len(result) == 1
+    assert result.iloc[0]["track_name"] == "Seed"
+
+
+def test_recommendations_exclude_seed_and_rank_similar_candidate_first():
+    result, seed_df, seed_profile = recommend_songs(
+        song_rows(),
+        seed_inputs=["Seed - A"],
+        bpm_min=115,
+        bpm_max=132,
+        workout_type="treadmill walk",
+        mood="club walk",
+        preferred_genres=["dance pop"],
         top_n=2,
     )
 
-    assert result.iloc[0]["track_name"] == "Best Match"
+    assert seed_df.iloc[0]["track_name"] == "Seed"
+    assert seed_profile["bpm"] == 126
+    assert result.iloc[0]["track_name"] == "Best Candidate"
+    assert "Seed" not in result["track_name"].tolist()
     assert result.iloc[0]["recommendation_score"] > result.iloc[1]["recommendation_score"]
+    assert {"bpm_fit", "seed_similarity", "workout_fit", "mood_genre_fit", "heart_rate_fit"}.issubset(result.columns)
     assert "why_recommended" in result.columns
+
+
+def test_no_seed_match_raises_instead_of_random_recommendations():
+    try:
+        recommend_songs(
+            song_rows(),
+            seed_inputs=["Missing Song - Nobody"],
+            bpm_min=115,
+            bpm_max=132,
+            workout_type="treadmill walk",
+            mood="club walk",
+        )
+    except ValueError as exc:
+        assert "seed song" in str(exc)
+    else:
+        raise AssertionError("Expected missing seed songs to raise ValueError")
