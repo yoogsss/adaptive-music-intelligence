@@ -16,10 +16,14 @@ ZONE_LABELS = [
 
 WORKOUT_TARGETS = {
     "treadmill walk": {"bpm": 118, "energy": 0.62, "danceability": 0.72},
+    "treadmill steady walk": {"bpm": 116, "energy": 0.58, "danceability": 0.72},
+    "treadmill incline walk": {"bpm": 128, "energy": 0.72, "danceability": 0.72},
     "treadmill run": {"bpm": 152, "energy": 0.86, "danceability": 0.72},
     "stairmaster": {"bpm": 130, "energy": 0.78, "danceability": 0.70},
+    "cycling intervals": {"bpm": 142, "energy": 0.84, "danceability": 0.68},
     "cycling": {"bpm": 138, "energy": 0.80, "danceability": 0.68},
     "weight lifting": {"bpm": 112, "energy": 0.74, "danceability": 0.60},
+    "strength training": {"bpm": 112, "energy": 0.72, "danceability": 0.60},
     "boxing": {"bpm": 148, "energy": 0.90, "danceability": 0.66},
     "pilates": {"bpm": 96, "energy": 0.42, "danceability": 0.55},
 }
@@ -38,7 +42,15 @@ CORE_FEATURES = ["bpm", "energy", "danceability", "valence", "acousticness"]
 
 
 def available_workout_types() -> list[str]:
-    return list(WORKOUT_TARGETS)
+    return [
+        "treadmill steady walk",
+        "treadmill incline walk",
+        "stairmaster",
+        "cycling intervals",
+        "boxing",
+        "strength training",
+        "pilates",
+    ]
 
 
 def available_moods() -> list[str]:
@@ -89,6 +101,41 @@ def heart_rate_context(workout_df: pd.DataFrame | None) -> dict[str, float] | No
     if avg_pct < 0.75:
         return {"bpm": 122, "energy": 0.62, "intensity": 0.55}
     if avg_pct < 0.85:
+        return {"bpm": 140, "energy": 0.78, "intensity": 0.75}
+    return {"bpm": 155, "energy": 0.90, "intensity": 0.90}
+
+
+def segment_workout_session(workout_df: pd.DataFrame, age: int) -> pd.DataFrame:
+    zoned = add_hr_zones(workout_df, age)
+    if "minute" not in zoned.columns:
+        zoned = zoned.reset_index().rename(columns={"index": "minute"})
+
+    zoned["segment_id"] = (zoned["hr_zone"] != zoned["hr_zone"].shift()).cumsum()
+    segments = (
+        zoned.groupby("segment_id")
+        .agg(
+            start_minute=("minute", "min"),
+            end_minute=("minute", "max"),
+            avg_heart_rate=("heart_rate", "mean"),
+            avg_hr_percent_max=("hr_percent_max", "mean"),
+            hr_zone=("hr_zone", "first"),
+        )
+        .reset_index(drop=True)
+    )
+    segments["segment_name"] = segments.apply(
+        lambda row: f"{int(row['start_minute'])}-{int(row['end_minute'])} min: {row['hr_zone']}",
+        axis=1,
+    )
+    return segments
+
+
+def segment_target(segment: pd.Series) -> dict[str, float]:
+    pct = float(segment["avg_hr_percent_max"])
+    if pct < 0.65:
+        return {"bpm": 105, "energy": 0.45, "intensity": 0.35}
+    if pct < 0.75:
+        return {"bpm": 122, "energy": 0.62, "intensity": 0.55}
+    if pct < 0.85:
         return {"bpm": 140, "energy": 0.78, "intensity": 0.75}
     return {"bpm": 155, "energy": 0.90, "intensity": 0.90}
 
@@ -206,6 +253,71 @@ def recommend_songs(
     )
 
 
+def recommend_for_workout_segments(
+    songs_df: pd.DataFrame,
+    segments_df: pd.DataFrame,
+    seed_inputs: Iterable[str],
+    bpm_min: int,
+    bpm_max: int,
+    workout_type: str,
+    mood: str,
+    preferred_genres: Iterable[str] | None = None,
+    min_score: float = 0.0,
+    songs_per_segment: int = 2,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, float]]:
+    playlists: list[pd.DataFrame] = []
+    seed_df: pd.DataFrame | None = None
+    seed_profile: dict[str, float] | None = None
+    used_song_keys: set[str] = set()
+
+    for segment_number, (_, segment) in enumerate(segments_df.iterrows(), start=1):
+        hr_target = segment_target(segment)
+        segment_df = pd.DataFrame(
+            {
+                "hr_percent_max": [segment["avg_hr_percent_max"]],
+                "heart_rate": [segment["avg_heart_rate"]],
+            }
+        )
+        segment_recs, seed_df, seed_profile = recommend_songs(
+            songs_df,
+            seed_inputs=seed_inputs,
+            bpm_min=bpm_min,
+            bpm_max=bpm_max,
+            workout_type=workout_type,
+            mood=mood,
+            preferred_genres=preferred_genres,
+            workout_df=segment_df,
+            min_score=min_score,
+            top_n=max(songs_per_segment * 4, songs_per_segment),
+        )
+        if segment_recs.empty:
+            continue
+
+        segment_recs["_song_key"] = segment_recs.apply(_song_key, axis=1).str.lower()
+        segment_recs = segment_recs[~segment_recs["_song_key"].isin(used_song_keys)].head(songs_per_segment)
+        used_song_keys.update(segment_recs["_song_key"].tolist())
+        segment_recs = segment_recs.drop(columns=["_song_key"])
+
+        segment_recs.insert(0, "segment_number", segment_number)
+        segment_recs.insert(1, "segment_name", segment["segment_name"])
+        segment_recs.insert(2, "start_minute", segment["start_minute"])
+        segment_recs.insert(3, "end_minute", segment["end_minute"])
+        segment_recs.insert(4, "hr_zone", segment["hr_zone"])
+        segment_recs.insert(5, "segment_target_bpm", hr_target["bpm"])
+        segment_recs.insert(6, "segment_target_energy", hr_target["energy"])
+        playlists.append(segment_recs)
+
+    if not playlists:
+        empty = pd.DataFrame()
+        if seed_df is None:
+            seed_df = find_seed_songs(songs_df, seed_inputs)
+        if seed_profile is None:
+            seed_profile = seed_feature_profile(seed_df)
+        return empty, seed_df, seed_profile
+
+    return pd.concat(playlists, ignore_index=True), seed_df, seed_profile
+
+
 def bpm_range_fit(bpm: pd.Series, bpm_min: int, bpm_max: int) -> pd.Series:
     midpoint = (bpm_min + bpm_max) / 2
     half_width = max((bpm_max - bpm_min) / 2, 1)
@@ -295,7 +407,7 @@ def explain_recommendation(
         reasons.append("genre matches your preference")
 
     if hr_target is not None and row["heart_rate_fit"] >= 0.70:
-        reasons.append("also fits the uploaded heart-rate intensity")
+        reasons.append("fits the simulated wearable heart-rate intensity")
 
     if not reasons:
         reasons.append("balanced score across seed similarity, BPM, workout, and mood")

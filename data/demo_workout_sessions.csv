@@ -1,0 +1,92 @@
+session_name,minute,heart_rate
+treadmill steady walk,0,92
+treadmill steady walk,1,98
+treadmill steady walk,2,105
+treadmill steady walk,3,112
+treadmill steady walk,4,118
+treadmill steady walk,5,122
+treadmill steady walk,6,125
+treadmill steady walk,7,127
+treadmill steady walk,8,128
+treadmill steady walk,9,126
+treadmill steady walk,10,123
+treadmill steady walk,11,118
+treadmill steady walk,12,110
+treadmill incline walk,0,95
+treadmill incline walk,1,104
+treadmill incline walk,2,116
+treadmill incline walk,3,128
+treadmill incline walk,4,136
+treadmill incline walk,5,142
+treadmill incline walk,6,146
+treadmill incline walk,7,149
+treadmill incline walk,8,151
+treadmill incline walk,9,146
+treadmill incline walk,10,138
+treadmill incline walk,11,128
+treadmill incline walk,12,116
+stairmaster,0,102
+stairmaster,1,116
+stairmaster,2,130
+stairmaster,3,142
+stairmaster,4,150
+stairmaster,5,156
+stairmaster,6,160
+stairmaster,7,158
+stairmaster,8,154
+stairmaster,9,148
+stairmaster,10,138
+stairmaster,11,126
+stairmaster,12,112
+cycling intervals,0,96
+cycling intervals,1,110
+cycling intervals,2,128
+cycling intervals,3,150
+cycling intervals,4,132
+cycling intervals,5,156
+cycling intervals,6,136
+cycling intervals,7,162
+cycling intervals,8,140
+cycling intervals,9,154
+cycling intervals,10,130
+cycling intervals,11,116
+cycling intervals,12,104
+boxing,0,104
+boxing,1,122
+boxing,2,142
+boxing,3,158
+boxing,4,166
+boxing,5,154
+boxing,6,168
+boxing,7,160
+boxing,8,170
+boxing,9,156
+boxing,10,144
+boxing,11,126
+boxing,12,110
+strength training,0,88
+strength training,1,96
+strength training,2,112
+strength training,3,126
+strength training,4,118
+strength training,5,134
+strength training,6,122
+strength training,7,138
+strength training,8,126
+strength training,9,132
+strength training,10,116
+strength training,11,104
+strength training,12,94
+pilates,0,78
+pilates,1,84
+pilates,2,92
+pilates,3,98
+pilates,4,104
+pilates,5,108
+pilates,6,110
+pilates,7,106
+pilates,8,102
+pilates,9,98
+pilates,10,92
+pilates,11,86
+pilates,12,80

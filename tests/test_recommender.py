@@ -6,7 +6,9 @@ from src.recommender import (
     classify_hr_zone,
     dominant_zone,
     find_seed_songs,
+    recommend_for_workout_segments,
     recommend_songs,
+    segment_workout_session,
 )
 
 
@@ -127,3 +129,48 @@ def test_no_seed_match_raises_instead_of_random_recommendations():
         assert "seed song" in str(exc)
     else:
         raise AssertionError("Expected missing seed songs to raise ValueError")
+
+
+def test_segment_workout_session_groups_contiguous_hr_zones():
+    workout = pd.DataFrame(
+            {
+                "minute": [0, 1, 2, 3, 4],
+                "heart_rate": [105, 124, 128, 145, 150],
+            }
+        )
+
+    segments = segment_workout_session(workout, age=30)
+
+    assert len(segments) == 3
+    assert segments.iloc[0]["hr_zone"] == "Zone 1 - Recovery"
+    assert segments.iloc[1]["start_minute"] == 1
+    assert segments.iloc[1]["end_minute"] == 2
+
+
+def test_recommend_for_workout_segments_returns_ordered_playlist():
+    workout = pd.DataFrame(
+        {
+            "minute": [0, 1, 2, 3],
+            "heart_rate": [124, 128, 150, 152],
+        }
+    )
+    segments = segment_workout_session(workout, age=30)
+
+    playlist, seed_df, seed_profile = recommend_for_workout_segments(
+        song_rows(),
+        segments_df=segments,
+        seed_inputs=["Seed - A"],
+        bpm_min=115,
+        bpm_max=132,
+        workout_type="treadmill steady walk",
+        mood="club walk",
+        preferred_genres=["dance pop"],
+        songs_per_segment=1,
+    )
+
+    assert not playlist.empty
+    assert playlist["segment_number"].is_monotonic_increasing
+    assert "segment_name" in playlist.columns
+    assert "heart_rate_fit" in playlist.columns
+    assert seed_df.iloc[0]["track_name"] == "Seed"
+    assert seed_profile["bpm"] == 126

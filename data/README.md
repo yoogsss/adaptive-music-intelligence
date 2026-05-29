@@ -1,26 +1,28 @@
 # Data
 
-The app is designed to work with real public Spotify/audio-feature CSV datasets. It does not call Spotify APIs, does not use Spotify OAuth, and does not depend on Spotify Recommendations, Audio Features, or Audio Analysis endpoints.
+The app runs from packaged datasets in this directory. Users do not upload CSVs in the normal MVP flow.
 
-## Recommended Public Datasets
+## Song Data
 
-Use one of these public datasets, then upload the CSV in the Streamlit app:
+The app loads song features in this order:
+
+1. `data/real_spotify_tracks.csv` if present.
+2. `data/demo_songs.csv` as a tiny fallback.
+
+`real_spotify_tracks.csv` is intentionally not required for the repo to run. Add it when you want to test against a larger public Spotify/audio-feature dataset.
+
+Recommended public datasets:
 
 - Hugging Face: `maharshipandya/spotify-tracks-dataset`
   - https://huggingface.co/datasets/maharshipandya/spotify-tracks-dataset
-  - Includes track metadata and audio features such as danceability, energy, valence, tempo, acousticness, and track genre.
 - Hugging Face: `engels/spotify-tracks-lite`
   - https://huggingface.co/datasets/engels/spotify-tracks-lite
-  - Smaller CSV-format dataset with Spotify-style audio features and `track_genre`.
 - Kaggle: Spotify Tracks Dataset
   - https://www.kaggle.com/datasets/yashdev01/spotify-tracks-dataset
-  - Includes track names, artists, genre labels, tempo, danceability, energy, acousticness, valence, and related features.
 
-Kaggle may require a free account. Hugging Face datasets are often easier to use for quick prototyping because they provide web-hosted dataset pages and file previews.
+The app does not call Spotify APIs, does not use OAuth, and does not depend on Spotify Recommendations, Audio Features, or Audio Analysis endpoints.
 
-## Required Columns
-
-After normalization, the app needs:
+Required normalized song columns:
 
 ```text
 track_name
@@ -33,7 +35,7 @@ acousticness
 genre
 ```
 
-The loader accepts common alternatives:
+The internal loader accepts common alternatives:
 
 ```text
 tempo -> bpm
@@ -43,10 +45,26 @@ track_genre -> genre
 playlist_genre -> genre
 ```
 
-`energy`, `danceability`, `valence`, and `acousticness` should be values from `0` to `1`. If a dataset stores them as percentages from `0` to `100`, the loader scales them down automatically.
+## Workout Session Data
 
-## Demo CSV
+`data/demo_workout_sessions.csv` simulates real-time wearable/app heart-rate streams.
 
-`demo_songs.csv` is a tiny bundled fallback so the app runs immediately. It is not a replacement for a real dataset and should only be used to test the interface.
+Required columns:
 
-For credible recommendations, upload a real public dataset with thousands of tracks.
+```text
+session_name
+minute
+heart_rate
+```
+
+Packaged sessions:
+
+- treadmill steady walk
+- treadmill incline walk
+- stairmaster
+- cycling intervals
+- boxing
+- strength training
+- pilates
+
+The app segments each session by heart-rate zone and recommends music for each segment. A future product version would replace this static CSV with live wearable sensor events.
